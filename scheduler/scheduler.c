@@ -2,13 +2,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
+#ifdef __linux__
+#include <sys/wait.h>
+#endif
 #include <unistd.h>
+#include <signal.h>
+
+Process *terminatedProcess = NULL;
 
 typedef enum {
     NEW,
     RUNNING,
     STOPPED,
-    FINISHED
+    EXITED
 } ExecutionStatus;
 
 // Structure to represent a process
@@ -100,6 +106,20 @@ void extractExecutableName(const char *path, char *executableName) {
     }
 }
 
+double timeval_diff(struct timeval *start, struct timeval *end) {
+    // Restamos los segundos y los microsegundos
+    double sec = (end->tv_sec - start->tv_sec);
+    double usec = (end->tv_usec - start->tv_usec);
+
+    // Si los microsegundos son negativos, ajustamos
+    if (usec < 0) {
+        sec--;
+        usec += 1000000;
+    }
+
+    // Retornamos el tiempo total en segundos (segundos + microsegundos convertidos a segundos)
+    return sec + usec / 1000000.0;
+}
 
 
 
@@ -146,12 +166,34 @@ void roundRobin(Queue*processes){
 }
 
 
+// Manejador de la señal SIGCHLD
+void sigchld_handler(int signo) {
+
+    struct timeval finishTime;
+    gettimeofday(&finishTime,NULL);
+    double totalTime = timeval_diff(terminatedProcess->entryTime,&finishTime);
+    if( terminatedProcess!= NULL){
+        int status;
+        pid_t pid = waitpid(terminatedProcess->pid, &status, 0); 
+
+        if (pid > 0) {
+            
+            printf("Process %d finished with status: %d\n", terminatedProcess->pid, status);
+            printf("Executable: %s\n", terminatedProcess->executableName);
+            printf("Route: %s\n", terminatedProcess->route);
+            printf("Time to execute:%.6f",totalTime);
+            terminatedProcess = NULL;
+        }
+    }
+}
+
 void firstComeFirstServe(Queue*processes){
-    Process *currentProc;
+    Process* currentProc;
     while (!isQueueEmpty(processes))
     {
       currentProc=dequeue(processes);
-      pid_t pid = fork(); // Crea un nuevo proceso
+      terminatedProcess= currentProc;
+      pid_t pid = fork(); 
 
     if (pid < 0) {
         perror("Fork failed");
@@ -159,13 +201,13 @@ void firstComeFirstServe(Queue*processes){
     } else if (pid == 0) {
         currentProc->pid=getpid();
         currentProc->status=RUNNING;
-
-        // Ejecutar el programa del atributo 'route'
+        
         execl(currentProc->route, currentProc->executableName, NULL);
         // Si execl falla, imprimir un error y salir
         perror("Execution failed");
-        exit(EXIT_FAILURE)
+        exit(EXIT_FAILURE);
     } else {
+        
         wait(NULL);
         //signaljandler;
     }
@@ -201,7 +243,6 @@ int main(int argc, char **argv) {
 
     //Extract the arguments of th e terminal
     char *filename;
-    int quantum = 0;
     Queue* processQueue = createQueue();
     if (strcmp(policy, "RR") == 0) {
         int quantum = 0;
@@ -214,11 +255,11 @@ int main(int argc, char **argv) {
         loadProcessesFromFile(filename,processQueue);
         roundRobin(processQueue);
 
-    } else {
+        } else if (strcmp(policy, "FCFS") == 0) {
+        signal(SIGCHLD, sigchld_handler);
         filename = argv[2];
         loadProcessesFromFile(filename,processQueue);
-
-
+        firstComeFirstServe(processQueue);
 
     }
 
