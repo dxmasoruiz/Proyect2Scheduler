@@ -8,7 +8,7 @@
 #include <unistd.h>
 #include <signal.h>
 
-
+volatile int exit_flag = 0; //This is for the father in fcfs to wait but also handle signals
 
 typedef enum {
     NEW,
@@ -171,28 +171,29 @@ void roundRobin(Queue*processes){
 void sigchld_handler(int signo) {
 
     struct timeval finishTime;
-    peintf("Aiii si ya termineeee")
+    printf("Aiii si ya termineeee");
     gettimeofday(&finishTime,NULL);
     double totalTime = timeval_diff(&terminatedProcess->entryTime,&finishTime);
-    if( terminatedProcess!= NULL){
-        int status;
-        pid_t pid = waitpid(terminatedProcess->pid, &status, 0); 
+   
+    int status;
+    pid_t pid = waitpid(terminatedProcess->pid, &status, 0); 
 
-        if (pid > 0) {
-            
-            printf("Process %d finished with status: %d\n", terminatedProcess->pid, status);
-            printf("Executable: %s\n", terminatedProcess->executableName);
-            printf("Route: %s\n", terminatedProcess->route);
-            printf("Time to execute:%.6f",totalTime);
-            terminatedProcess = NULL;
-        }
-    }
+    
+    
+    printf("Process %d finished with status: %d\n", terminatedProcess->pid, status);
+    printf("Executable: %s\n", terminatedProcess->executableName);
+    printf("Route: %s\n", terminatedProcess->route);
+    printf("Time to execute:%.6f",totalTime);
+     terminatedProcess = NULL;
+    exit_flag=1;
+     
 }
 
 void firstComeFirstServe(Queue*processes){
     Process* currentProc;
     while (!isQueueEmpty(processes))
     {
+      exit_flag=0;
       currentProc=dequeue(processes);
       terminatedProcess= currentProc;
       pid_t pid = fork(); 
@@ -207,10 +208,13 @@ void firstComeFirstServe(Queue*processes){
         execl(currentProc->route, currentProc->executableName, NULL);
         // Si execl falla, imprimir un error y salir
         perror("Execution failed");
+        exit_flag=1;
         exit(EXIT_FAILURE);
     } else {
         
-        wait(NULL);
+        while(exit_flag==0){
+            pause();
+        }
         //signaljandler;
     }
 
@@ -264,6 +268,10 @@ int main(int argc, char **argv) {
         firstComeFirstServe(processQueue);
 
     }
+
+
+
+}
 
 
 
