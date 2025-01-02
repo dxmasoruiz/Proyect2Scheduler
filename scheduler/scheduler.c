@@ -172,7 +172,7 @@ void sigchld_handler(int signo) {
 
     struct timeval finishTime;
     gettimeofday(&finishTime,NULL);
-    double totalTime = timeval_diff(terminatedProcess->entryTime,&finishTime);
+    double totalTime = timeval_diff(&terminatedProcess->entryTime,&finishTime);
     if( terminatedProcess!= NULL){
         int status;
         pid_t pid = waitpid(terminatedProcess->pid, &status, 0); 
@@ -198,7 +198,7 @@ void firstComeFirstServe(Queue*processes){
 
     if (pid < 0) {
         perror("Fork failed");
-        return 1;
+        return ;
     } else if (pid == 0) {
         currentProc->pid=getpid();
         currentProc->status=RUNNING;
