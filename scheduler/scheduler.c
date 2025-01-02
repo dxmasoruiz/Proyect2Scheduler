@@ -171,6 +171,7 @@ void roundRobin(Queue*processes){
 void sigchld_handler(int signo) {
 
     struct timeval finishTime;
+    peintf("Aiii si ya termineeee")
     gettimeofday(&finishTime,NULL);
     double totalTime = timeval_diff(&terminatedProcess->entryTime,&finishTime);
     if( terminatedProcess!= NULL){
