@@ -8,7 +8,7 @@
 #include <unistd.h>
 #include <signal.h>
 
-Process *terminatedProcess = NULL;
+
 
 typedef enum {
     NEW,
@@ -26,6 +26,7 @@ typedef struct Process {
     struct timeval entryTime;             // Time of entry into the queue
 } Process;
 
+Process *terminatedProcess = NULL;
 // Node structure for the queue
 typedef struct Node {
     Process *process;           // Process stored in the node
