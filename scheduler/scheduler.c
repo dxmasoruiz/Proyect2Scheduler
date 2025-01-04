@@ -171,19 +171,20 @@ void roundRobin(Queue*processes){
 void sigchld_handler(int signo) {
 
     struct timeval finishTime;
-    printf("Aiii si ya termineeee");
     gettimeofday(&finishTime,NULL);
     double totalTime = timeval_diff(&terminatedProcess->entryTime,&finishTime);
    
     int status;
-    pid_t pid = waitpid(terminatedProcess->pid, &status, 0); 
+    waitpid(terminatedProcess->pid, &status, 0); 
 
     
-    
-    printf("Process %d finished with status: %d\n", terminatedProcess->pid, status);
+    terminatedProcess->status=EXITED;
+    printf("-----------------------------------------------------\n");
+    printf("Process %d finished with code: %d\n", terminatedProcess->pid, status);
     printf("Executable: %s\n", terminatedProcess->executableName);
     printf("Route: %s\n", terminatedProcess->route);
-    printf("Time to execute:%.6f",totalTime);
+    printf("Time to execute:%.6f\n",totalTime);
+    printf("-----------------------------------------------------\n");
      terminatedProcess = NULL;
     exit_flag=1;
      
@@ -275,4 +276,4 @@ int main(int argc, char **argv) {
 
 
 
-}
+
