@@ -162,8 +162,48 @@ void loadProcessesFromFile(const char *filename, Queue *q) {
     fclose(file);
 }
 
-void roundRobin(Queue*processes){
-
+void roundRobin(Queue*processes,int quantum){
+    //Se xtrae un pproceso de la cola de procesos
+    //Si es la primera vez se crea un hilo para que ejecute , sino se continua 
+    //ejecuta el proceso durante  el quantum 
+    //Si termina el proceso no se vuelve a encolar y si no se  vuelve a introducir
+    while (!isQueueEmpty(processes))
+    {
+        Process* currentProcess = dequeue(processes);
+        terminatedProcess=currentProcess;
+        if(currentProcess->status==NEW){      
+            int pid = fork();      
+            if (pid==0)
+            {
+                currentProcess->pid= getpid();
+                currentProcess->status=RUNNING;
+                execl(currentProcess->route,currentProcess->executableName,NULL);
+                perror("Execution failed");
+                exit(EXIT_FAILURE);
+            }else if(pid<0){
+                printf("Fork failed");
+                return;
+            }else{
+                sleep(quantum);
+                kill(currentProcess->pid,SIGSTOP);
+                if(currentProcess->status==RUNNING){
+                    currentProcess->status=STOPPED;
+                }
+            }
+            enqueue(processes,currentProcess);
+            
+        }else if (currentProcess->status==STOPPED || currentProcess->status==RUNNING)
+        {
+            kill(currentProcess->pid,SIGCONT);
+            currentProcess->status=RUNNING;
+            sleep(quantum);
+            kill(currentProcess->pid,SIGSTOP);
+            currentProcess->status=STOPPED;
+        }
+        else{
+            free(currentProcess);
+        }
+    }
 }
 
 
@@ -173,11 +213,8 @@ void sigchld_handler(int signo) {
     struct timeval finishTime;
     gettimeofday(&finishTime,NULL);
     double totalTime = timeval_diff(&terminatedProcess->entryTime,&finishTime);
-   
     int status;
     waitpid(terminatedProcess->pid, &status, 0); 
-
-    
     terminatedProcess->status=EXITED;
     printf("-----------------------------------------------------\n");
     printf("Process %d finished with code: %d\n", terminatedProcess->pid, status);
@@ -185,7 +222,7 @@ void sigchld_handler(int signo) {
     printf("Route: %s\n", terminatedProcess->route);
     printf("Time to execute:%.6f\n",totalTime);
     printf("-----------------------------------------------------\n");
-     terminatedProcess = NULL;
+    terminatedProcess = NULL;
     exit_flag=1;
      
 }
@@ -251,6 +288,7 @@ int main(int argc, char **argv) {
     //Extract the arguments of th e terminal
     char *filename;
     Queue* processQueue = createQueue();
+    signal(SIGCHLD, sigchld_handler);
     if (strcmp(policy, "RR") == 0) {
         int quantum = 0;
         quantum = atoi(argv[2]);
@@ -263,7 +301,7 @@ int main(int argc, char **argv) {
         roundRobin(processQueue);
 
         } else if (strcmp(policy, "FCFS") == 0) {
-        signal(SIGCHLD, sigchld_handler);
+        
         filename = argv[2];
         loadProcessesFromFile(filename,processQueue);
         firstComeFirstServe(processQueue);
