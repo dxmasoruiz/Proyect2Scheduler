@@ -162,7 +162,7 @@ void loadProcessesFromFile(const char *filename, Queue *q) {
     fclose(file);
 }
 
-void roundRobin(Queue*processes,int quantum){
+void roundRobin(Queue*processes,struct timespec quantum){
     //Se xtrae un pproceso de la cola de procesos
     //Si es la primera vez se crea un hilo para que ejecute , sino se continua 
     //ejecuta el proceso durante  el quantum 
@@ -175,6 +175,7 @@ void roundRobin(Queue*processes,int quantum){
             int pid = fork();      
             if (pid==0)
             {
+                printf("Executing process %s for the first time \n",currentProcess->executableName);
                 currentProcess->pid= getpid();
                 currentProcess->status=RUNNING;
                 execl(currentProcess->route,currentProcess->executableName,NULL);
@@ -184,7 +185,7 @@ void roundRobin(Queue*processes,int quantum){
                 printf("Fork failed");
                 return;
             }else{
-                sleep(quantum);
+                nanosleep(&quantum,NULL);
                 kill(currentProcess->pid,SIGSTOP);
                 if(currentProcess->status==RUNNING){
                     currentProcess->status=STOPPED;
@@ -196,9 +197,10 @@ void roundRobin(Queue*processes,int quantum){
         {
             kill(currentProcess->pid,SIGCONT);
             currentProcess->status=RUNNING;
-            sleep(quantum);
+            nanosleep(&quantum,NULL);
             kill(currentProcess->pid,SIGSTOP);
             currentProcess->status=STOPPED;
+            enqueue(processes,currentProcess);
         }
         else{
             free(currentProcess);
@@ -236,23 +238,23 @@ void firstComeFirstServe(Queue*processes){
       terminatedProcess= currentProc;
       pid_t pid = fork(); 
 
-    if (pid < 0) {
-        perror("Fork failed");
-        return ;
-    } else if (pid == 0) {
-        currentProc->pid=getpid();
-        currentProc->status=RUNNING;
+        if (pid < 0) {
+            perror("Fork failed");
+             return ;
+        } else if (pid == 0) {
+            currentProc->pid=getpid();
+            currentProc->status=RUNNING;
         
-        execl(currentProc->route, currentProc->executableName, NULL);
-        // Si execl falla, imprimir un error y salir
-        perror("Execution failed");
-        exit_flag=1;
-        exit(EXIT_FAILURE);
-    } else {
+             execl(currentProc->route, currentProc->executableName, NULL);
+            // Si execl falla, imprimir un error y salir
+            perror("Execution failed");
+            exit_flag=1;
+            exit(EXIT_FAILURE);
+        } else {
         
-        while(exit_flag==0){
-            pause();
-        }
+         while(exit_flag==0){
+                pause();
+         }
         //signaljandler;
     }
 
@@ -289,16 +291,21 @@ int main(int argc, char **argv) {
     char *filename;
     Queue* processQueue = createQueue();
     signal(SIGCHLD, sigchld_handler);
+
     if (strcmp(policy, "RR") == 0) {
         int quantum = 0;
         quantum = atoi(argv[2]);
+        struct  timespec  quantumTime;
+        
         if (quantum <= 0) {
             printf("Invalid quantum value. It must be a positive integer.\n");
             return 1;
         }
+        quantumTime.tv_nsec=quantum;
+        quantumTime.tv_sec=0; 
         filename = argv[3];
         loadProcessesFromFile(filename,processQueue);
-        roundRobin(processQueue);
+        roundRobin(processQueue,quantumTime);
 
         } else if (strcmp(policy, "FCFS") == 0) {
         
