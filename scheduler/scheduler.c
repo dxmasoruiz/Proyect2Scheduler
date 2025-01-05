@@ -7,6 +7,8 @@
 #endif
 #include <unistd.h>
 #include <signal.h>
+#include <time.h>
+
 
 volatile int exit_flag = 0; //This is for the father in fcfs to wait but also handle signals
 
@@ -50,7 +52,6 @@ Queue* createQueue() {
     return q;
 }
 
-
 // Function to check if the queue is empty
 int isQueueEmpty(Queue *q) {
     return q->front == NULL;
@@ -75,7 +76,7 @@ void enqueue(Queue *q, Process* p) {
 }
 
 // Function to remove a process from the queue
-Process*  dequeue(Queue *q) {
+Process* dequeue(Queue *q) {
     if (isQueueEmpty(q)) {
         fprintf(stderr, "Error: Queue is empty\n");
         exit(EXIT_FAILURE);
@@ -90,9 +91,6 @@ Process*  dequeue(Queue *q) {
     free(temp);
     return p;
 }
-
-
-
 
 void extractExecutableName(const char *path, char *executableName) {
     // Find the position of the last '/'
@@ -122,9 +120,6 @@ double timeval_diff(struct timeval *start, struct timeval *end) {
     return sec + usec / 1000000.0;
 }
 
-
-
-
 void loadProcessesFromFile(const char *filename, Queue *q) {
     FILE *file = fopen(filename, "r");
     if (file == NULL) {
@@ -139,6 +134,7 @@ void loadProcessesFromFile(const char *filename, Queue *q) {
         Process *newProcess = (Process *)malloc(sizeof(Process));
         if (newProcess == NULL) {
             perror("Failed to allocate memory for process");
+            fclose(file);
             exit(EXIT_FAILURE);
         }
 
@@ -162,104 +158,87 @@ void loadProcessesFromFile(const char *filename, Queue *q) {
     fclose(file);
 }
 
-void roundRobin(Queue*processes,struct timespec quantum){
-    //Se xtrae un pproceso de la cola de procesos
-    //Si es la primera vez se crea un hilo para que ejecute , sino se continua 
-    //ejecuta el proceso durante  el quantum 
-    //Si termina el proceso no se vuelve a encolar y si no se  vuelve a introducir
-    while (!isQueueEmpty(processes))
-    {
+void roundRobin(Queue* processes, struct timespec quantum) {
+    while (!isQueueEmpty(processes)) {
         Process* currentProcess = dequeue(processes);
-        terminatedProcess=currentProcess;
-        if(currentProcess->status==NEW){      
-            int pid = fork();      
-            if (pid==0)
-            {
-                printf("Executing process %s for the first time \n",currentProcess->executableName);
-                currentProcess->pid= getpid();
-                currentProcess->status=RUNNING;
-                execl(currentProcess->route,currentProcess->executableName,NULL);
+        terminatedProcess = currentProcess;
+        if (currentProcess->status == NEW) {
+            int pid = fork();
+            if (pid == 0) {
+                printf("Executing process %s for the first time \n", currentProcess->executableName);
+                currentProcess->pid = getpid();
+                currentProcess->status = RUNNING;
+                execl(currentProcess->route, currentProcess->executableName, NULL);
                 perror("Execution failed");
                 exit(EXIT_FAILURE);
-            }else if(pid<0){
-                printf("Fork failed");
+            } else if (pid < 0) {
+                perror("Fork failed");
+                free(currentProcess);
                 return;
-            }else{
-                nanosleep(&quantum,NULL);
-                kill(currentProcess->pid,SIGSTOP);
-                if(currentProcess->status==RUNNING){
-                    currentProcess->status=STOPPED;
+            } else {
+                nanosleep(&quantum, NULL);
+                kill(currentProcess->pid, SIGSTOP);
+                if (currentProcess->status == RUNNING) {
+                    currentProcess->status = STOPPED;
                 }
             }
-            enqueue(processes,currentProcess);
-            
-        }else if (currentProcess->status==STOPPED || currentProcess->status==RUNNING)
-        {
-            kill(currentProcess->pid,SIGCONT);
-            currentProcess->status=RUNNING;
-            nanosleep(&quantum,NULL);
-            kill(currentProcess->pid,SIGSTOP);
-            currentProcess->status=STOPPED;
-            enqueue(processes,currentProcess);
-        }
-        else{
+            enqueue(processes, currentProcess);
+        } else if (currentProcess->status == STOPPED || currentProcess->status == RUNNING) {
+            kill(currentProcess->pid, SIGCONT);
+            currentProcess->status = RUNNING;
+            nanosleep(&quantum, NULL);
+            kill(currentProcess->pid, SIGSTOP);
+            currentProcess->status = STOPPED;
+            enqueue(processes, currentProcess);
+        } else {
             free(currentProcess);
         }
     }
 }
 
-
 // Manejador de la señal SIGCHLD
 void sigchld_handler(int signo) {
-
     struct timeval finishTime;
-    gettimeofday(&finishTime,NULL);
-    double totalTime = timeval_diff(&terminatedProcess->entryTime,&finishTime);
+    gettimeofday(&finishTime, NULL);
+    double totalTime = timeval_diff(&terminatedProcess->entryTime, &finishTime);
     int status;
-    waitpid(terminatedProcess->pid, &status, 0); 
-    terminatedProcess->status=EXITED;
+    waitpid(terminatedProcess->pid, &status, 0);
+    terminatedProcess->status = EXITED;
     printf("-----------------------------------------------------\n");
     printf("Process %d finished with code: %d\n", terminatedProcess->pid, status);
     printf("Executable: %s\n", terminatedProcess->executableName);
     printf("Route: %s\n", terminatedProcess->route);
-    printf("Time to execute:%.6f\n",totalTime);
+    printf("Time to execute: %.6f\n", totalTime);
     printf("-----------------------------------------------------\n");
     terminatedProcess = NULL;
-    exit_flag=1;
-     
+    exit_flag = 1;
 }
 
-void firstComeFirstServe(Queue*processes){
+void firstComeFirstServe(Queue* processes) {
     Process* currentProc;
-    while (!isQueueEmpty(processes))
-    {
-      exit_flag=0;
-      currentProc=dequeue(processes);
-      terminatedProcess= currentProc;
-      pid_t pid = fork(); 
+    while (!isQueueEmpty(processes)) {
+        exit_flag = 0;
+        currentProc = dequeue(processes);
+        terminatedProcess = currentProc;
+        pid_t pid = fork();
 
         if (pid < 0) {
             perror("Fork failed");
-             return ;
+            free(currentProc);
+            return;
         } else if (pid == 0) {
-            currentProc->pid=getpid();
-            currentProc->status=RUNNING;
-        
-             execl(currentProc->route, currentProc->executableName, NULL);
-            // Si execl falla, imprimir un error y salir
+            currentProc->pid = getpid();
+            currentProc->status = RUNNING;
+            execl(currentProc->route, currentProc->executableName, NULL);
             perror("Execution failed");
-            exit_flag=1;
+            exit_flag = 1;
             exit(EXIT_FAILURE);
         } else {
-        
-         while(exit_flag==0){
+            while (exit_flag == 0) {
                 pause();
-         }
-        //signaljandler;
+            }
+        }
     }
-
-    }
-
 }
 
 int main(int argc, char **argv) {
@@ -287,7 +266,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    //Extract the arguments of th e terminal
+    // Extract the arguments of the terminal
     char *filename;
     Queue* processQueue = createQueue();
     signal(SIGCHLD, sigchld_handler);
@@ -295,30 +274,31 @@ int main(int argc, char **argv) {
     if (strcmp(policy, "RR") == 0) {
         int quantum = 0;
         quantum = atoi(argv[2]);
-        struct  timespec  quantumTime;
-        
+        struct timespec quantumTime;
+
         if (quantum <= 0) {
             printf("Invalid quantum value. It must be a positive integer.\n");
             return 1;
         }
-        quantumTime.tv_nsec=quantum;
-        quantumTime.tv_sec=0; 
+        quantumTime.tv_nsec = quantum;
+        quantumTime.tv_sec = 0;
         filename = argv[3];
-        loadProcessesFromFile(filename,processQueue);
-        roundRobin(processQueue,quantumTime);
-
-        } else if (strcmp(policy, "FCFS") == 0) {
-        
+        loadProcessesFromFile(filename, processQueue);
+        roundRobin(processQueue, quantumTime);
+    } else if (strcmp(policy, "FCFS") == 0) {
         filename = argv[2];
-        loadProcessesFromFile(filename,processQueue);
+        loadProcessesFromFile(filename, processQueue);
         firstComeFirstServe(processQueue);
-
     }
 
+    // Free the queue
+    while (!isQueueEmpty(processQueue)) {
+        Process* p = dequeue(processQueue);
+        free(p);
+    }
+    free(processQueue);
 
-
+    return 0;
 }
-
-
 
 
