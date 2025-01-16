@@ -207,8 +207,9 @@ void sigUsr2_handler(int sign, siginfo_t* info, void* context) {
     pid_t sender_pid = info->si_pid; // Obtener el PID del proceso que envió SIGUSR2
     printf("Process with  PID %d finished the I/O routine \n", sender_pid);
     //Also you can just deque because it is a FIFO but i think its risky 
-    Process* proc = findProcessByPid(ioQueue, sender_pid);
-    proc->status = STOPPED; 
+    Process* proc = dequeue(ioQueue);
+    proc->status = STOPPED;
+    printf("...\n");	 
     enqueue(processQueue,proc);
 }
 
@@ -242,6 +243,139 @@ void firstComeFirstServe(Queue* processes) {
         }
         while (exit_flag == 0) {
             pause();
+        }
+    }
+}
+//-------------------RR---------------------
+void roundRobin(Queue* q, int quantum) {
+    while (!isQueueEmpty(q)) {
+        Process* p = dequeue(q);
+        if (!p) {
+            continue;
+        }
+
+        // Si no se ha iniciado nunca, lo lanzamos
+        if (p->pid == -1) {
+            if (p->remainingTime <= 0) {
+                p->remainingTime = 5000; // Ej. 5s
+            }
+            pid_t pid = fork();
+            if (pid < 0) {
+                perror("fork failed");
+                free(p);
+                continue;
+            } else if (pid == 0) {
+                // Hijo
+                p->pid = getpid();
+                p->status = RUNNING;
+                execlp(p->route, p->executableName, NULL);
+                perror("execlp failed");
+                exit(EXIT_FAILURE);
+            } else {
+                // Padre
+                p->pid = pid;
+                p->status = RUNNING;
+                printf("Started process: %s (PID: %d)\n", p->executableName, p->pid);
+            }
+        } else {
+            // Ya existía
+            printf("Resuming process: %s (PID: %d)\n", p->executableName, p->pid);
+            kill(p->pid, SIGCONT);
+            p->status = RUNNING;
+        }
+
+        // Esperamos quantum (simulado) revisando periódicamente
+        struct timespec start, now;
+        clock_gettime(CLOCK_MONOTONIC, &start);
+
+        int elapsed = 0;
+        int finished = 0;
+
+        while (elapsed < quantum) {
+            // Dormimos 1ms
+            struct timespec ts = {0, 1000000L};
+            nanosleep(&ts, NULL);
+
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            elapsed = (int)((now.tv_sec - start.tv_sec) * 1000 +
+                            (now.tv_nsec - start.tv_nsec) / 1000000);
+
+            // Comprobamos si ya terminó
+            int status;
+            pid_t res = waitpid(p->pid, &status, WNOHANG);
+            if (res > 0) {
+                // El proceso terminó o cambió de estado
+                // Imitamos la misma salida que FCFS
+                struct timeval finishTime;
+                gettimeofday(&finishTime, NULL);
+                double totalTime = timeval_diff(&p->entryTime, &finishTime);
+
+                printf("-----------------------------------------------------\n");
+                printf("Process %d finished with code: %d\n", p->pid, WEXITSTATUS(status));
+                printf("Executable: %s\n", p->executableName);
+                printf("Route: %s\n", p->route);
+                printf("Time to execute: %.6f\n", totalTime);
+                printf("-----------------------------------------------------\n");
+
+                free(p);
+                p = NULL;
+                finished = 1;
+                break;
+            }
+        }
+
+        // Si no terminó, pausamos
+        if (!finished && p != NULL) {
+            // Verificamos una última vez
+            int status;
+            pid_t res = waitpid(p->pid, &status, WNOHANG);
+            if (res > 0) {
+                // Terminó justo al final
+                struct timeval finishTime;
+                gettimeofday(&finishTime, NULL);
+                double totalTime = timeval_diff(&p->entryTime, &finishTime);
+
+                printf("-----------------------------------------------------\n");
+                printf("Process %d finished with code: %d\n", p->pid, WEXITSTATUS(status));
+                printf("Executable: %s\n", p->executableName);
+                printf("Route: %s\n", p->route);
+                printf("Time to execute: %.6f\n", totalTime);
+                printf("-----------------------------------------------------\n");
+
+                free(p);
+                p = NULL;
+                continue;
+            }
+
+            // Aún sigue corriendo, lo pausamos
+            printf("Pausing process: %s (PID: %d)\n", p->executableName, p->pid);
+            kill(p->pid, SIGSTOP);
+            p->status = STOPPED;
+
+            // Descontamos su quantum
+            p->remainingTime -= quantum;
+            if (p->remainingTime > 0) {
+                // Volvemos a encolarlo
+                enqueue(q, p);
+            } else {
+                // Se agotó su tiempo total, lo matamos y mostramos info
+                kill(p->pid, SIGKILL);
+                waitpid(p->pid, NULL, 0);
+
+                struct timeval finishTime;
+                gettimeofday(&finishTime, NULL);
+                double totalTime = timeval_diff(&p->entryTime, &finishTime);
+
+                printf("-----------------------------------------------------\n");
+                printf("Process %d finished with code: %d\n", p->pid, 0); // 0 = Killed?
+                printf("Executable: %s\n", p->executableName);
+                printf("Route: %s\n", p->route);
+                printf("Time to execute: %.6f\n", totalTime);
+                printf("-----------------------------------------------------\n");
+
+                free(p);
+                p = NULL;
+            }
         }
     }
 }
